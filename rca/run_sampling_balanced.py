@@ -13,6 +13,7 @@ from rca.baseline.cot_lm import CoTLM
 from main.evaluate import evaluate
 from time import time
 from rca.api_router import configs
+from rca.wandb_logger import WandbLogger
 
 import random
 
@@ -22,24 +23,24 @@ tokenizer = tiktoken.encoding_for_model("gpt-4o")
 def cache_df_dict(dataset_name:str):
 
     df_dict = dict()
-    
+
     if dataset_name == "Telecom":
         from rca.baseline.oracle_kpis import kpi_Telecom_len
         selected_kpi_len = kpi_Telecom_len
-        
+
         example_df_dict = {
             "metric": [],
             "trace": [],
         }
         dataset_path = "Telecom"
-        
+
         import rca.baseline.rca_agent.prompt.basic_prompt_Telecom as bp
         cand = bp.cand
-        
+
     elif dataset_name == "Bank":
         from rca.baseline.oracle_kpis import kpi_Bank_len
         selected_kpi_len = kpi_Bank_len
-        
+
         example_df_dict = {
             "log": [],
             "metric": [],
@@ -49,11 +50,11 @@ def cache_df_dict(dataset_name:str):
 
         import rca.baseline.rca_agent.prompt.basic_prompt_Bank as bp
         cand = bp.cand
-        
+
     elif dataset_name == "Market/cloudbed-1":
         from rca.baseline.oracle_kpis import kpi_Market_len
         selected_kpi_len = kpi_Market_len
-        
+
         example_df_dict = {
             "log": [],
             "metric": [],
@@ -63,11 +64,11 @@ def cache_df_dict(dataset_name:str):
 
         import rca.baseline.rca_agent.prompt.basic_prompt_Market as bp
         cand = bp.cand
-        
+
     elif dataset_name == "Market/cloudbed-2":
         from rca.baseline.oracle_kpis import kpi_Market_len
         selected_kpi_len = kpi_Market_len
-        
+
         example_df_dict = {
             "log": [],
             "metric": [],
@@ -77,13 +78,13 @@ def cache_df_dict(dataset_name:str):
 
         import rca.baseline.rca_agent.prompt.basic_prompt_Market as bp
         cand = bp.cand
-        
+
     for day_time in os.listdir(f"dataset/{dataset_path}/telemetry/"):
         if day_time == '.DS_Store':
                 continue
         if day_time not in df_dict:
             df_dict[day_time] = deepcopy(example_df_dict)
-            
+
         for data_type in os.listdir(f"dataset/{dataset_path}/telemetry/{day_time}"):
             if data_type == '.DS_Store':
                 continue
@@ -92,7 +93,7 @@ def cache_df_dict(dataset_name:str):
                 cur_df = pd.read_csv(f"dataset/{dataset_path}/telemetry/{day_time}/{data_type}/{fname}")
                 t1 = time()
                 logger.debug(f"{round(t1-t0,1)} seconds for reading {fname}")
-                
+
                 #preprocess
                 cur_df = cur_df.reset_index()
                 if "timestamp" in cur_df.columns:
@@ -109,21 +110,21 @@ def cache_df_dict(dataset_name:str):
                     logger.warning(f"{fname} is empty")
                 else:
                     df_dict[day_time][data_type].append((fname, cur_df))
-                
+
     return df_dict, selected_kpi_len, cand
 
 
 def extract_period_data(df_list:list, data_type:str, target_timestamp:int, sample_interval=60, selected_kpi=None, selected_kpi_len=None) -> list:
 
     logger.debug(f"Extracting {data_type} data ...")
-    
+
     extracted_data = ""
     for fname, df_file in df_list:
 
         if data_type == "metric" and len(selected_kpi) >= selected_kpi_len:
             logger.info(f"Selected KPI number ({len(selected_kpi)}) have reached the limit: {selected_kpi_len}")
             break
-        
+
         if "timestamp" in df_file.columns:
             col = "timestamp"
         elif "startTime" in df_file.columns:
@@ -131,13 +132,13 @@ def extract_period_data(df_list:list, data_type:str, target_timestamp:int, sampl
         else:
             logger.error("There is no 'startTime' or 'timestamp' indicating the timestamp of the data entries")
             raise IndexError
-                
+
         t1 = time()
         start_timestamp = target_timestamp - target_timestamp % 1800
         end_timestamp = start_timestamp + 1800
         filtered_df = df_file[(df_file[col] >= start_timestamp) & (df_file[col] <= end_timestamp)]
         filtered_df = filtered_df.drop(columns=["index"])
-        
+
         t2 = time()
         logger.debug(f"{round(t2-t1,1)} seconds for filtering 30 min data")
 
@@ -184,7 +185,7 @@ def extract_period_data(df_list:list, data_type:str, target_timestamp:int, sampl
             for opt_name in opt_duration_field_name:
                 if opt_name in df_file.columns:
                     duration_field_name = opt_name
-            
+
             filtered_df = filtered_df[[col, traceid_field_name, spanid_field_name, parent_field_name, duration_field_name, "cmdb_id"]]
             schema = filtered_df.columns
             schema = schema.drop([traceid_field_name])
@@ -219,7 +220,7 @@ def extract_period_data(df_list:list, data_type:str, target_timestamp:int, sampl
             if kpi_field_name==None:
                 logger.error("There is no 'name' or 'serviceName' indicating the kpi_name of the data entries")
                 raise IndexError
-            
+
             if kpi_field_name == 'name' or kpi_field_name == 'kpi_name':
                 if len(filtered_df[kpi_field_name].unique()) > 0:
                     kpi = random.choice(filtered_df[kpi_field_name].unique())
@@ -238,7 +239,7 @@ def extract_period_data(df_list:list, data_type:str, target_timestamp:int, sampl
             if 'cmdb_id' not in filtered_df.columns:
                 filtered_df["resource_name"] = filtered_df[kpi_field_name]
                 filtered_df = filtered_df.drop(columns=[kpi_field_name])
-            else: 
+            else:
                 filtered_df["resource_name"] = filtered_df["cmdb_id"] + "_" + filtered_df[kpi_field_name]
                 filtered_df = filtered_df.drop(columns=["cmdb_id", kpi_field_name])
             if "itemid" in filtered_df.columns:
@@ -269,7 +270,7 @@ def extract_period_data(df_list:list, data_type:str, target_timestamp:int, sampl
             logger.debug(f"{round(t3-t2,1)} seconds for selecting metric data")
     return extracted_data, selected_kpi
 
-def main(args):
+def main(args, wb_logger):
     import rca.baseline.rca_agent.prompt.agent_prompt as ap
     if args.dataset == "Telecom":
         import rca.baseline.rca_agent.prompt.basic_prompt_Telecom as bp
@@ -280,20 +281,20 @@ def main(args):
 
     inst_file = f"dataset/{args.dataset}/query.csv"
     gt_file = f"dataset/{args.dataset}/record.csv"
-    eval_file = f"test/result/{args.dataset}/balanced_{args.tag}_{args.mode}-{configs['MODEL'].split('/')[-1]}.csv"
-    obs_path = f"test/monitor/{args.dataset}/balanced_{args.tag}_{args.mode}-{configs['MODEL'].split('/')[-1]}"
+    model_tag = configs['MODEL'].split('/')[-1]
+    eval_file = f"test/result/{args.dataset}/balanced_{args.tag}_{args.mode}-{model_tag}.csv"
+    obs_path = f"test/monitor/{args.dataset}/balanced_{args.tag}_{args.mode}-{model_tag}"
     unique_obs_path = f"{obs_path}/{uid}"
+
+    if not os.path.exists(inst_file) or not os.path.exists(gt_file):
+        raise FileNotFoundError(f"Dataset files not found. Please download the dataset first.")
 
     instruct_data = pd.read_csv(inst_file)
     gt_data = pd.read_csv(gt_file)
-    if not os.path.exists(inst_file) or not os.path.exists(gt_file):
-        raise FileNotFoundError(f"Please download the dataset first.")
-    
-    if not os.path.exists(f"{unique_obs_path}/prompt"):
-        os.makedirs(f"{unique_obs_path}/prompt")
+
+    os.makedirs(f"{unique_obs_path}/prompt", exist_ok=True)
     if not os.path.exists(eval_file):
-        if not os.path.exists(f"test/result/{args.dataset}"):
-            os.makedirs(f"test/result/{args.dataset}")
+        os.makedirs(f"test/result/{args.dataset}", exist_ok=True)
         eval_df = pd.DataFrame(columns=["instruction", "prediction", "groundtruth", "passed", "failed", "score"])
     else:
         eval_df = pd.read_csv(eval_file)
@@ -302,38 +303,27 @@ def main(args):
     logger.remove()
     logger.add(sys.stdout, colorize=True, enqueue=True, level="INFO")
     logger.add(logfile, colorize=True, enqueue=True, level="INFO")
-    
-    scores = {
-        "total": 0,
-        "easy": 0,
-        "middle": 0,
-        "hard": 0,
-    }
-    nums = {
-        "total": 0,
-        "easy": 0,
-        "middle": 0,
-        "hard": 0,
-    }
-    
+
+    scores = {"total": 0, "easy": 0, "middle": 0, "hard": 0}
+    nums = {"total": 0, "easy": 0, "middle": 0, "hard": 0}
+
     logger.info(f"Using dataset: {args.dataset}")
-    logger.info(f"Using model: {configs['MODEL'].split('/')[-1]}")
+    logger.info(f"Using model: {model_tag}")
     logger.info("Start caching dataframes ...")
     df_dict, selected_kpi_len, cand = cache_df_dict(args.dataset)
-    
+
     for idx, row in instruct_data.iterrows():
 
         if idx < args.start_idx:
                 continue
         if idx > args.end_idx:
             break
-        
+
         instruction = row["instruction"]
         timestamp = gt_data.iloc[idx]["timestamp"].astype(int)
         date_time = gt_data.iloc[idx]["datetime"].split(" ")[0].replace("-","_")
         task_index = row["task_index"]
         scoring_points = row["scoring_points"]
-        print(scoring_points)
         task_id = int(task_index.split('_')[1])
         best_score = 0
 
@@ -341,30 +331,28 @@ def main(args):
             catalog = "easy"
         elif task_id <= 6:
             catalog = "middle"
-        elif task_id <= 7:
+        else:
             catalog = "hard"
-            
-        
 
         for i in range(args.sample_num):
             uuid = uid + f"_#{idx}-{i}"
             promptfile = f"{unique_obs_path}/prompt/{uuid}.txt"
             logger.debug('\n' + "#"*80 + f"\n{uuid}: {task_index}\n" + "#"*80)
-            
+
             period_data = dict()
-            
+
             if args.dataset != "Telecom":
                 period_data["log"], _ = extract_period_data(deepcopy(df_dict[date_time]["log"]),
                                                         "log", timestamp,
                                                         sample_interval=args.sample_interval,
                                                         )
-            
+
             period_data["trace"], _ = extract_period_data(deepcopy(df_dict[date_time]["trace"]),
                                                         "trace",
                                                         timestamp,
                                                         sample_interval=args.sample_interval,
                                                         )
-            
+
             selected_kpi = set()
             new_kpi = ""
             period_data['metric'] = ""
@@ -379,11 +367,12 @@ def main(args):
                                                                     )
                 period_data['metric'] += new_kpi
             logger.info(f"Selected KPI number: {len(selected_kpi)}\tLimit: {selected_kpi_len}")
-            
+
             logger.info(f"Sampling Finished. Total tokens: {sum([len(tokenizer.encode(data)) for data in period_data.values()])}")
 
-            try:   
-                if args.mode == "direct":         
+            task_start = time()
+            try:
+                if args.mode == "direct":
                     model = DirectLM(gt_data, cand)
                 elif args.mode == "cot":
                     model = CoTLM(gt_data, cand)
@@ -397,15 +386,15 @@ def main(args):
 
                 new_eval_df = pd.DataFrame([{"row_id": idx,
                                             "task_index": task_index,
-                                            "instruction": instruction, 
+                                            "instruction": instruction,
                                             "prediction": prediction,
                                             "groundtruth": '\n'.join([f'{col}: {gt_data.iloc[idx][col]}' for col in gt_data.columns if col != 'description']),
                                             "passed": "N/A",
-                                            "failed": "N/A", 
+                                            "failed": "N/A",
                                             "score": "N/A"}])
-                eval_df = pd.concat([eval_df, new_eval_df], 
+                eval_df = pd.concat([eval_df, new_eval_df],
                                     ignore_index=True)
-                eval_df.to_csv(eval_file, 
+                eval_df.to_csv(eval_file,
                                 index=False)
 
                 if prediction == "EXCEED!":
@@ -414,6 +403,8 @@ def main(args):
                     score = 0.0
                 else:
                     passed_criteria, failed_criteria, score = evaluate(prediction, scoring_points)
+
+                task_duration = time() - task_start
                 logger.info(f"Prediction: {prediction}")
                 logger.info(f"Scoring Points: {scoring_points}")
                 logger.info(f"Passed Criteria: {passed_criteria}")
@@ -424,25 +415,37 @@ def main(args):
                 eval_df.loc[eval_df.index[-1], "passed"] = '\n'.join(passed_criteria)
                 eval_df.loc[eval_df.index[-1], "failed"] = '\n'.join(failed_criteria)
                 eval_df.loc[eval_df.index[-1], "score"] = score
-                eval_df.to_csv(eval_file, 
+                eval_df.to_csv(eval_file,
                                 index=False)
-                
+
+                # Log to wandb
+                wb_logger.log_task_result(
+                    idx=idx, task_index=task_index, catalog=catalog,
+                    instruction=instruction, prediction=prediction,
+                    groundtruth='\n'.join([f'{col}: {gt_data.iloc[idx][col]}' for col in gt_data.columns if col != 'description']),
+                    passed_criteria=passed_criteria, failed_criteria=failed_criteria,
+                    score=score, num_steps=0, duration_s=task_duration,
+                    prompt=prompt
+                )
+
                 temp_scores = scores.copy()
                 temp_scores[catalog] += best_score
                 temp_scores["total"] += best_score
                 temp_nums = nums.copy()
                 temp_nums[catalog] += 1
                 temp_nums["total"] += 1
-                
+
             except Exception as e:
                 logger.error(e)
                 continue
-            
+
         scores = temp_scores
         nums = temp_nums
+        wb_logger.log_running_scores(scores, nums)
 
-    
-                        
+    wb_logger.log_final_summary(scores, nums, args.dataset)
+
+
 if __name__ == "__main__":
     uid = datetime.now().strftime('%Y-%m-%d_%H-%M-%S')
     parser = argparse.ArgumentParser()
@@ -453,8 +456,30 @@ if __name__ == "__main__":
     parser.add_argument("--sample_interval", type=int, default=60)
     parser.add_argument("--mode", type=str, default="direct")
     parser.add_argument("--tag", type=str, default='lm')
-    
+    # wandb arguments
+    parser.add_argument("--wandb_project", type=str, default="OpenRCA")
+    parser.add_argument("--wandb_name", type=str, default=None)
+    parser.add_argument("--no_wandb", action="store_true", default=False)
+
     args = parser.parse_args()
 
-    main(args)
+    model_tag = configs['MODEL'].split('/')[-1]
+    wandb_name = args.wandb_name or f"balanced-{args.mode}-{args.tag}-{model_tag}-{uid}"
+    wb_logger = WandbLogger(
+        project=args.wandb_project,
+        run_name=wandb_name,
+        config={
+            "method": f"balanced_{args.mode}",
+            "model": configs["MODEL"],
+            "source": configs["SOURCE"],
+            "tag": args.tag,
+            "sample_interval": args.sample_interval,
+        },
+        enabled=not args.no_wandb
+    )
+    wb_logger.log_config(configs, args)
 
+    try:
+        main(args, wb_logger)
+    finally:
+        wb_logger.finish()

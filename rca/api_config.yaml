@@ -1,4 +1,8 @@
-SOURCE:   "OpenAI"
-MODEL:    "gpt-4o-2024-05-13"
-API_KEY:  "sk-xxxxxxxxxxxxxx"
-API_BASE: ""
+# API Configuration
+# SOURCE options: "OpenAI", "Anthropic", "Google", "AI" (OpenAI-compatible), "vLLM"
+SOURCE:     "vLLM"
+MODEL:      "Qwen/Qwen3-VL-8B-Instruct"
+API_KEY:    "EMPTY"
+API_BASE:   "http://localhost:8000/v1"
+MAX_TOKENS: 8192
+MAX_RETRIES: 5
