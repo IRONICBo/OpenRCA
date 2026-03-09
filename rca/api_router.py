@@ -4,15 +4,20 @@ import time
 
 def load_config(config_path=None):
     if config_path is None:
-        # Search for config in multiple locations
-        candidates = [
-            "rca/api_config.yaml",
-            os.path.join(os.path.dirname(__file__), "api_config.yaml"),
-        ]
-        for c in candidates:
-            if os.path.exists(c):
-                config_path = c
-                break
+        # Allow per-worker config via environment variable
+        env_config = os.environ.get("RCA_API_CONFIG")
+        if env_config and os.path.exists(env_config):
+            config_path = env_config
+        else:
+            # Search for config in multiple locations
+            candidates = [
+                "rca/api_config.yaml",
+                os.path.join(os.path.dirname(__file__), "api_config.yaml"),
+            ]
+            for c in candidates:
+                if os.path.exists(c):
+                    config_path = c
+                    break
         if config_path is None:
             raise FileNotFoundError("Cannot find api_config.yaml")
 
