@@ -1,16 +1,12 @@
 #!/bin/bash
 # Start vLLM server(s) for Qwen model on B200 GPUs
 #
-# Two modes:
-#   Single instance (TP across GPUs):
-#     bash scripts/start_vllm.sh
-#     GPUS=4 bash scripts/start_vllm.sh
+# Single instance:
+#   bash scripts/start_vllm.sh
 #
-#   Multi-instance (one per GPU, for max throughput with small models):
-#     bash scripts/start_vllm.sh --multi
-#     NUM_INSTANCES=8 bash scripts/start_vllm.sh --multi
-#
-# 8B model on 8x B200: use --multi to get 8 independent instances
+# Multi-instance (8-GPU, one per GPU):
+#   bash scripts/start_vllm.sh --multi
+#   NUM_INSTANCES=4 bash scripts/start_vllm.sh --multi
 set -e
 
 MODEL="${MODEL:-Qwen/Qwen3-VL-8B-Instruct}"
@@ -18,34 +14,35 @@ BASE_PORT="${BASE_PORT:-8000}"
 GPUS="${GPUS:-1}"
 NUM_INSTANCES="${NUM_INSTANCES:-8}"
 MAX_MODEL_LEN="${MAX_MODEL_LEN:-32768}"
+MODEL_CACHE="${MODEL_CACHE:-$HOME/.cache/huggingface/hub}"
+# Max seconds to wait for each instance to become ready
+WAIT_TIMEOUT="${WAIT_TIMEOUT:-300}"
 MULTI_MODE=false
 
-# Parse args
 for arg in "$@"; do
     case $arg in
         --multi) MULTI_MODE=true ;;
         --model=*) MODEL="${arg#*=}" ;;
-        *) MODEL="${arg}" ;;
     esac
 done
 
 # Check vLLM
 if ! python -c "import vllm" 2>/dev/null; then
-    echo "ERROR: vLLM not installed. Install with:"
-    echo "  pip install vllm"
+    echo "ERROR: vLLM not installed. Install with: pip install vllm"
     exit 1
 fi
 
-# Detect available GPUs
+# Detect GPUs
 TOTAL_GPUS=$(python -c "import torch; print(torch.cuda.device_count())" 2>/dev/null || echo "0")
 echo "Detected GPUs: ${TOTAL_GPUS}"
-
 if [ "$TOTAL_GPUS" -eq 0 ]; then
     echo "ERROR: No GPUs detected."
     exit 1
 fi
 
-# Build extra args for VL models
+mkdir -p logs
+
+# VL model extra args
 VL_ARGS=""
 if [[ "$MODEL" == *"VL"* ]] || [[ "$MODEL" == *"vl"* ]]; then
     echo "Detected VL (Vision-Language) model."
@@ -53,7 +50,7 @@ fi
 
 if [ "$MULTI_MODE" = true ]; then
     # ========================================
-    # Multi-instance mode: one vLLM per GPU
+    # Multi-instance: one vLLM per GPU
     # ========================================
     if [ "$NUM_INSTANCES" -gt "$TOTAL_GPUS" ]; then
         NUM_INSTANCES=$TOTAL_GPUS
@@ -65,22 +62,36 @@ if [ "$MULTI_MODE" = true ]; then
     echo "  Model:      $MODEL"
     echo "  Instances:  $NUM_INSTANCES"
     echo "  Ports:      ${BASE_PORT}-$((BASE_PORT + NUM_INSTANCES - 1))"
-    echo "  GPUs:       0-$((NUM_INSTANCES - 1)) (1 GPU each)"
     echo "  Max Len:    $MAX_MODEL_LEN"
+    echo "  Cache:      $MODEL_CACHE"
+    echo "  Timeout:    ${WAIT_TIMEOUT}s per instance"
     echo "============================================"
     echo ""
 
+    # Step 1: Pre-download model once (avoid 8 concurrent downloads)
+    echo "[Step 1] Pre-downloading model (if needed)..."
+    python -c "
+from huggingface_hub import snapshot_download
+snapshot_download('${MODEL}', cache_dir='${MODEL_CACHE}')
+print('Model cached.')
+" 2>&1 | tail -3
+    echo ""
+
+    # Step 2: Start instances one by one
+    echo "[Step 2] Starting instances..."
     PIDS=()
+    READY_COUNT=0
+
     for i in $(seq 0 $((NUM_INSTANCES - 1))); do
         PORT=$((BASE_PORT + i))
 
-        # Check port
-        if lsof -i :$PORT -sTCP:LISTEN >/dev/null 2>&1; then
-            echo "  [SKIP] GPU $i - Port $PORT already in use"
+        if ss -tlnp 2>/dev/null | grep -q ":${PORT} " || \
+           lsof -i :$PORT -sTCP:LISTEN >/dev/null 2>&1; then
+            echo "  [SKIP] Port $PORT already in use"
             continue
         fi
 
-        echo "  [START] GPU $i -> port $PORT"
+        echo "  [START] GPU $i -> port $PORT ..."
         CUDA_VISIBLE_DEVICES=$i python -m vllm.entrypoints.openai.api_server \
             --model "$MODEL" \
             --port $PORT \
@@ -89,43 +100,59 @@ if [ "$MULTI_MODE" = true ]; then
             --trust-remote-code \
             --dtype auto \
             --gpu-memory-utilization 0.90 \
+            --download-dir "$MODEL_CACHE" \
             $VL_ARGS \
             > "logs/vllm_gpu${i}.log" 2>&1 &
         PIDS+=($!)
-    done
 
-    echo ""
-    echo "All instances starting. PIDs: ${PIDS[*]}"
-    echo "Logs: logs/vllm_gpu*.log"
-    echo ""
-    echo "Waiting for servers to be ready..."
-    sleep 5
-
-    READY=0
-    for i in $(seq 0 $((NUM_INSTANCES - 1))); do
-        PORT=$((BASE_PORT + i))
-        for attempt in $(seq 1 60); do
+        # Wait for this instance to be ready before starting next
+        ELAPSED=0
+        while [ $ELAPSED -lt $WAIT_TIMEOUT ]; do
             if curl -s --max-time 2 "http://localhost:${PORT}/v1/models" > /dev/null 2>&1; then
-                echo "  [READY] GPU $i -> port $PORT"
-                READY=$((READY + 1))
+                echo "  [READY] GPU $i -> port $PORT (${ELAPSED}s)"
+                READY_COUNT=$((READY_COUNT + 1))
                 break
             fi
-            sleep 2
+            # Check if process died
+            if ! kill -0 ${PIDS[-1]} 2>/dev/null; then
+                echo "  [FAILED] GPU $i -> process died. Check logs/vllm_gpu${i}.log"
+                tail -5 "logs/vllm_gpu${i}.log" 2>/dev/null
+                break
+            fi
+            sleep 3
+            ELAPSED=$((ELAPSED + 3))
         done
+
+        if [ $ELAPSED -ge $WAIT_TIMEOUT ]; then
+            echo "  [TIMEOUT] GPU $i -> port $PORT did not become ready in ${WAIT_TIMEOUT}s"
+            echo "  Last log lines:"
+            tail -5 "logs/vllm_gpu${i}.log" 2>/dev/null
+        fi
     done
 
     echo ""
-    echo "${READY}/${NUM_INSTANCES} instances ready."
+    echo "============================================"
+    echo "  ${READY_COUNT}/${NUM_INSTANCES} instances ready"
+    echo "  PIDs: ${PIDS[*]}"
+    echo "  Logs: logs/vllm_gpu*.log"
+    echo "============================================"
     echo ""
-    echo "To stop all: kill ${PIDS[*]}"
-    echo "Or: bash scripts/stop_vllm.sh"
+    echo "To stop: bash scripts/stop_vllm.sh"
+    echo ""
 
-    # Wait for all
+    if [ $READY_COUNT -eq 0 ]; then
+        echo "ERROR: No instances started successfully."
+        echo "Check logs: tail logs/vllm_gpu0.log"
+        exit 1
+    fi
+
+    # Keep script alive so Ctrl+C kills all
+    echo "Press Ctrl+C to stop all instances."
     wait
 
 else
     # ========================================
-    # Single instance mode (tensor parallel)
+    # Single instance (tensor parallel)
     # ========================================
     if [ "$GPUS" -gt "$TOTAL_GPUS" ]; then
         GPUS=$TOTAL_GPUS
@@ -140,8 +167,8 @@ else
     echo "  Max Len:    $MAX_MODEL_LEN"
     echo "============================================"
 
-    # Check port
-    if lsof -i :$BASE_PORT -sTCP:LISTEN >/dev/null 2>&1; then
+    if ss -tlnp 2>/dev/null | grep -q ":${BASE_PORT} " || \
+       lsof -i :$BASE_PORT -sTCP:LISTEN >/dev/null 2>&1; then
         echo "WARNING: Port $BASE_PORT already in use."
         exit 1
     fi
@@ -154,5 +181,6 @@ else
         --trust-remote-code \
         --dtype auto \
         --gpu-memory-utilization 0.90 \
+        --download-dir "$MODEL_CACHE" \
         $VL_ARGS
 fi
