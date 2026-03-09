@@ -1,5 +1,5 @@
 #!/bin/bash
-# Setup script for OpenRCA on B200 environment
+# Setup script for OpenRCA on B200 environment (conda)
 # Usage: bash scripts/setup.sh
 set -e
 
@@ -11,20 +11,18 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
 cd "$PROJECT_DIR"
 
-# 1. Virtual environment
-if [ ! -d "venv" ]; then
-    echo "[1/5] Creating virtual environment..."
-    python3 -m venv venv
-else
-    echo "[1/5] Virtual environment already exists."
-fi
-source venv/bin/activate
+CONDA_ENV="${CONDA_ENV:-fintech-copilot}"
+
+# 1. Activate conda environment
+echo "[1/5] Activating conda environment: ${CONDA_ENV}"
+eval "$(conda shell.bash hook)"
+conda activate "$CONDA_ENV"
+echo "  Python: $(which python)"
 
 # 2. Install dependencies
 echo "[2/5] Installing Python dependencies..."
 pip install --upgrade pip
 pip install -r requirements.txt
-pip install gdown  # for dataset download
 
 # 3. Install vLLM
 echo "[3/5] Installing vLLM..."
@@ -84,6 +82,7 @@ if [ "$NGPUS" -gt 0 ]; then
 else
     echo "  GPUs:    None detected (CPU only)"
 fi
+echo "  Conda:   $CONDA_ENV"
 echo "  Python:  $(python --version 2>&1)"
 echo "  vLLM:    $(python -c 'import vllm; print(vllm.__version__)' 2>/dev/null || echo 'not installed')"
 echo "  wandb:   $(python -c 'import wandb; print(wandb.__version__)' 2>/dev/null || echo 'not installed')"
@@ -96,13 +95,12 @@ echo ""
 echo "Quick start (8-GPU B200):"
 echo ""
 echo "  # Terminal 1: Start 8 vLLM instances (one per GPU)"
+echo "  conda activate $CONDA_ENV"
 echo "  bash scripts/start_vllm.sh --multi"
 echo ""
 echo "  # Terminal 2: Run evaluation with 8 parallel workers"
+echo "  conda activate $CONDA_ENV"
 echo "  bash scripts/run_qwen_eval.sh --parallel 8 --dataset Bank"
-echo ""
-echo "  # Or run all datasets"
-echo "  bash scripts/run_qwen_eval.sh --parallel 8"
 echo ""
 echo "  # Stop vLLM when done"
 echo "  bash scripts/stop_vllm.sh"

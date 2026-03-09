@@ -7,6 +7,10 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
 cd "$PROJECT_DIR"
 
+CONDA_ENV="${CONDA_ENV:-fintech-copilot}"
+eval "$(conda shell.bash hook)"
+conda activate "$CONDA_ENV"
+
 NO_WANDB=""
 if [[ "$1" == "--no_wandb" ]]; then
     NO_WANDB="--no_wandb"

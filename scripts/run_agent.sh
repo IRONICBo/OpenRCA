@@ -12,10 +12,10 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
 cd "$PROJECT_DIR"
 
-# Activate virtual environment if exists
-if [ -f "venv/bin/activate" ]; then
-    source venv/bin/activate
-fi
+# Activate conda environment
+CONDA_ENV="${CONDA_ENV:-fintech-copilot}"
+eval "$(conda shell.bash hook)"
+conda activate "$CONDA_ENV"
 
 # Default parameters
 DATASET="${DATASET:-Market/cloudbed-1}"

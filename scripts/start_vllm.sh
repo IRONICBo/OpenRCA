@@ -9,6 +9,10 @@
 #   NUM_INSTANCES=4 bash scripts/start_vllm.sh --multi
 set -e
 
+CONDA_ENV="${CONDA_ENV:-fintech-copilot}"
+eval "$(conda shell.bash hook)"
+conda activate "$CONDA_ENV"
+
 MODEL="${MODEL:-Qwen/Qwen3-VL-8B-Instruct}"
 BASE_PORT="${BASE_PORT:-8000}"
 GPUS="${GPUS:-1}"
