@@ -13,6 +13,9 @@ CONDA_ENV="${CONDA_ENV:-fintech-copilot}"
 eval "$(conda shell.bash hook)"
 conda activate "$CONDA_ENV"
 
+# Use conda's libstdc++ to avoid CXXABI version mismatch with system lib
+export LD_LIBRARY_PATH="$CONDA_PREFIX/lib:${LD_LIBRARY_PATH:-}"
+
 MODEL="${MODEL:-Qwen/Qwen3-VL-8B-Instruct}"
 BASE_PORT="${BASE_PORT:-8000}"
 GPUS="${GPUS:-1}"

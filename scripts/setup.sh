@@ -17,6 +17,7 @@ CONDA_ENV="${CONDA_ENV:-fintech-copilot}"
 echo "[1/5] Activating conda environment: ${CONDA_ENV}"
 eval "$(conda shell.bash hook)"
 conda activate "$CONDA_ENV"
+export LD_LIBRARY_PATH="$CONDA_PREFIX/lib:${LD_LIBRARY_PATH:-}"
 echo "  Python: $(which python)"
 
 # 2. Install dependencies

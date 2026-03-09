@@ -19,6 +19,7 @@ cd "$PROJECT_DIR"
 CONDA_ENV="${CONDA_ENV:-fintech-copilot}"
 eval "$(conda shell.bash hook)"
 conda activate "$CONDA_ENV"
+export LD_LIBRARY_PATH="$CONDA_PREFIX/lib:${LD_LIBRARY_PATH:-}"
 
 # vLLM connection
 VLLM_HOST="${VLLM_HOST:-localhost}"
