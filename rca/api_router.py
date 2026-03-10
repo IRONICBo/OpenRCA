@@ -132,18 +132,13 @@ def WanQing_chat_completion(messages, temperature):
         "temperature": temperature,
     }
 
-    # GPT-5 and newer models require max_completion_tokens instead of max_tokens
-    # Try max_tokens first, fall back to max_completion_tokens on error
-    try:
+    # Some models (e.g. GPT-5) don't support max_tokens param
+    if configs.get("NO_MAX_TOKENS"):
+        pass
+    else:
         kwargs["max_tokens"] = max_tokens
-        response = client.chat.completions.create(**kwargs)
-    except Exception as e:
-        if "max_completion_tokens" in str(e):
-            del kwargs["max_tokens"]
-            kwargs["max_completion_tokens"] = max_tokens
-            response = client.chat.completions.create(**kwargs)
-        else:
-            raise
+
+    response = client.chat.completions.create(**kwargs)
 
     content = response.choices[0].message.content
     if content is None:
