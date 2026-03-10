@@ -112,6 +112,34 @@ def AI_chat_completion(messages, temperature):
     ).choices[0].message.content
 
 
+def WanQing_chat_completion(messages, temperature):
+    """Chat completion via WanQing internal API gateway (OpenAI-compatible)."""
+    from openai import OpenAI
+
+    client = OpenAI(
+        api_key=configs.get("API_KEY") or os.environ.get("WQ_API_KEY"),
+        base_url=configs.get("API_BASE", "http://wanqing.internal/api/gateway/v1/endpoints"),
+    )
+
+    max_tokens = int(configs.get("MAX_TOKENS", 8192))
+
+    if temperature == 0.0:
+        temperature = 0.01
+
+    response = client.chat.completions.create(
+        model=configs["MODEL"],
+        messages=messages,
+        temperature=temperature,
+        max_tokens=max_tokens,
+    )
+
+    content = response.choices[0].message.content
+    if content is None:
+        finish_reason = response.choices[0].finish_reason
+        raise ValueError(f"WanQing API returned empty content (finish_reason={finish_reason})")
+    return content
+
+
 def vLLM_chat_completion(messages, temperature):
     """Chat completion for models served via vLLM (OpenAI-compatible API)."""
     from openai import OpenAI
@@ -150,6 +178,8 @@ def get_chat_completion(messages, temperature=0.0):
     def send_request():
         if configs["SOURCE"] == "vLLM":
             return vLLM_chat_completion(messages, temperature)
+        elif configs["SOURCE"] == "WanQing":
+            return WanQing_chat_completion(messages, temperature)
         elif configs["SOURCE"] == "AI":
             return AI_chat_completion(messages, temperature)
         elif configs["SOURCE"] == "OpenAI":
@@ -160,7 +190,7 @@ def get_chat_completion(messages, temperature=0.0):
             return Anthropic_chat_completion(messages, temperature)
         else:
             raise ValueError(f"Invalid SOURCE in api_config: '{configs['SOURCE']}'. "
-                             "Use 'vLLM', 'AI', 'OpenAI', 'Google', or 'Anthropic'.")
+                             "Use 'vLLM', 'WanQing', 'AI', 'OpenAI', 'Google', or 'Anthropic'.")
 
     max_retries = int(configs.get("MAX_RETRIES", 3))
     for i in range(max_retries):
