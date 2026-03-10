@@ -176,12 +176,7 @@ def main(args, uid, dataset, wb_logger):
                     trajectory=trajectory, prompt=prompt
                 )
 
-                temp_scores = scores.copy()
-                temp_scores[catalog] += best_score
-                temp_scores["total"] += best_score
-                temp_nums = nums.copy()
-                temp_nums[catalog] += 1
-                temp_nums["total"] += 1
+                # best_score updated above via max()
 
             except TimeoutError:
                 task_duration = timer() - task_start_time
@@ -205,8 +200,11 @@ def main(args, uid, dataset, wb_logger):
                 )
                 continue
 
-        scores = temp_scores
-        nums = temp_nums
+        # Update scores (temp_scores may not exist if all samples failed)
+        scores[catalog] += best_score
+        scores["total"] += best_score
+        nums[catalog] += 1
+        nums["total"] += 1
 
         # Log running scores
         wb_logger.log_running_scores(scores, nums)
