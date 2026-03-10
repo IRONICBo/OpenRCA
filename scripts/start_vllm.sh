@@ -101,16 +101,26 @@ print('Model cached.')
             > "logs/vllm_gpu${i}.log" 2>&1 &
         PIDS+=($!)
 
+        # Tail log in background so user can see startup progress
+        tail -f "logs/vllm_gpu${i}.log" --pid=${PIDS[-1]} 2>/dev/null &
+        TAIL_PID=$!
+
         # Wait for this instance to be ready before starting next
         ELAPSED=0
         while [ $ELAPSED -lt $WAIT_TIMEOUT ]; do
             if curl -s --max-time 2 "http://localhost:${PORT}/v1/models" > /dev/null 2>&1; then
-                echo "  [READY] GPU $i -> port $PORT (${ELAPSED}s)"
+                # Stop tailing log
+                kill $TAIL_PID 2>/dev/null; wait $TAIL_PID 2>/dev/null
+                # Query actual served model name
+                SERVED=$(curl -s "http://localhost:${PORT}/v1/models" | python -c "import sys,json; print(json.load(sys.stdin)['data'][0]['id'])" 2>/dev/null || echo "unknown")
+                echo ""
+                echo "  [READY] GPU $i -> port $PORT (${ELAPSED}s) | Model: ${SERVED}"
                 READY_COUNT=$((READY_COUNT + 1))
                 break
             fi
             # Check if process died
             if ! kill -0 ${PIDS[-1]} 2>/dev/null; then
+                kill $TAIL_PID 2>/dev/null; wait $TAIL_PID 2>/dev/null
                 echo "  [FAILED] GPU $i -> process died. Check logs/vllm_gpu${i}.log"
                 tail -5 "logs/vllm_gpu${i}.log" 2>/dev/null
                 break
