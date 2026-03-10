@@ -126,12 +126,24 @@ def WanQing_chat_completion(messages, temperature):
     if temperature == 0.0:
         temperature = 0.01
 
-    response = client.chat.completions.create(
-        model=configs["MODEL"],
-        messages=messages,
-        temperature=temperature,
-        max_tokens=max_tokens,
-    )
+    kwargs = {
+        "model": configs["MODEL"],
+        "messages": messages,
+        "temperature": temperature,
+    }
+
+    # GPT-5 and newer models require max_completion_tokens instead of max_tokens
+    # Try max_tokens first, fall back to max_completion_tokens on error
+    try:
+        kwargs["max_tokens"] = max_tokens
+        response = client.chat.completions.create(**kwargs)
+    except Exception as e:
+        if "max_completion_tokens" in str(e):
+            del kwargs["max_tokens"]
+            kwargs["max_completion_tokens"] = max_tokens
+            response = client.chat.completions.create(**kwargs)
+        else:
+            raise
 
     content = response.choices[0].message.content
     if content is None:
