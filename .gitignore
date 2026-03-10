@@ -3,7 +3,7 @@
 dataset/
 test/
 api_config.yaml
-api_config_wanqing.yaml
+api_config_wanqing*.yaml
 api_config_worker_*.yaml
 
 # Mac
