@@ -110,7 +110,7 @@ print('Model cached.')
         while [ $ELAPSED -lt $WAIT_TIMEOUT ]; do
             if curl -s --max-time 2 "http://localhost:${PORT}/v1/models" > /dev/null 2>&1; then
                 # Stop tailing log
-                kill $TAIL_PID 2>/dev/null; wait $TAIL_PID 2>/dev/null
+                kill $TAIL_PID 2>/dev/null; wait $TAIL_PID 2>/dev/null || true
                 # Query actual served model name
                 SERVED=$(curl -s "http://localhost:${PORT}/v1/models" | python -c "import sys,json; print(json.load(sys.stdin)['data'][0]['id'])" 2>/dev/null || echo "unknown")
                 echo ""
@@ -120,7 +120,7 @@ print('Model cached.')
             fi
             # Check if process died
             if ! kill -0 ${PIDS[-1]} 2>/dev/null; then
-                kill $TAIL_PID 2>/dev/null; wait $TAIL_PID 2>/dev/null
+                kill $TAIL_PID 2>/dev/null; wait $TAIL_PID 2>/dev/null || true
                 echo "  [FAILED] GPU $i -> process died. Check logs/vllm_gpu${i}.log"
                 tail -5 "logs/vllm_gpu${i}.log" 2>/dev/null
                 break
