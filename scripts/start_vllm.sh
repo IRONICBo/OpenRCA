@@ -67,13 +67,17 @@ if [ "$MULTI_MODE" = true ]; then
     echo "============================================"
     echo ""
 
-    # Step 1: Pre-download model once (avoid N concurrent downloads)
-    echo "[Step 1] Pre-downloading model (if needed)..."
-    python -c "
+    # Step 1: Pre-download model once (skip if local path)
+    if [[ "$MODEL" == /* ]]; then
+        echo "[Step 1] Using local model path: $MODEL"
+    else
+        echo "[Step 1] Pre-downloading model (if needed)..."
+        python -c "
 from huggingface_hub import snapshot_download
 snapshot_download('${MODEL}')
 print('Model cached.')
 " 2>&1 | tail -3
+    fi
     echo ""
 
     # Step 2: Start instances sequentially (wait for each to be ready)
