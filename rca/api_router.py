@@ -129,13 +129,12 @@ def WanQing_chat_completion(messages, temperature):
     kwargs = {
         "model": configs["MODEL"],
         "messages": messages,
-        "temperature": temperature,
     }
 
-    # Some models (e.g. GPT-5) don't support max_tokens param
-    if configs.get("NO_MAX_TOKENS"):
-        pass
-    else:
+    # Some models (e.g. GPT-5) don't support temperature/max_tokens params
+    if not configs.get("NO_TEMPERATURE"):
+        kwargs["temperature"] = temperature
+    if not configs.get("NO_MAX_TOKENS"):
         kwargs["max_tokens"] = max_tokens
 
     response = client.chat.completions.create(**kwargs)
